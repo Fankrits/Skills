@@ -1,6 +1,6 @@
 ---
 name: fix-stale-cache-deployment
-description: Use this skill whenever a user reports that their deployed website shows old/outdated content after a new deploy, users have to hard-refresh (Ctrl+Shift+R) to see updates, or they see errors like "ChunkLoadError", "Loading chunk X failed", "Failed to fetch dynamically imported module", "Unexpected token" html-parsing errors after deployment, or a blank white screen right after pushing a new version live. Also trigger for requests about service worker update handling, PWA "new version available" prompts, browser caching strategy for JS/CSS bundles, cache-control headers, or any mention of stale cache / cache busting / cache invalidation for a website. Works across any frontend framework (Next.js, Vite, Create React App, SvelteKit, Nuxt/Vue, vanilla) and any host (Vercel, Netlify, Cloudflare, Nginx, Apache, S3+CloudFront). Trigger this proactively even if the user just describes the symptom ("my users say the site looks broken until they clear their cache") without naming any of the technical terms above.
+description: Use this skill whenever a user reports that their deployed website shows old/outdated content after a new deploy, users have to hard-refresh (Ctrl+Shift+R) to see updates, or they see errors like "ChunkLoadError", "Loading chunk X failed", "Failed to fetch dynamically imported module", "Unexpected token" html-parsing errors after deployment, or a blank white screen right after pushing a new version live. Also trigger for requests about service worker update handling, PWA "new version available" prompts, browser caching strategy for JS/CSS bundles, cache-control headers, stale-while-revalidate, ISR revalidation not working, CDN serving stale content, or any mention of stale cache / cache busting / cache invalidation for a website. Works across any frontend framework (Next.js, Vite, Create React App, SvelteKit, Nuxt/Vue, Remix, React Router v7, Astro, Qwik, SolidStart, TanStack Start, vanilla) and any host (Vercel, Netlify, Cloudflare, Cloudflare Workers, Nginx, Apache, S3+CloudFront, Deno Deploy, Firebase Hosting, Azure Static Web Apps, Fly.io, Railway, Render). Trigger this proactively even if the user just describes the symptom ("my users say the site looks broken until they clear their cache") without naming any of the technical terms above.
 ---
 
 # Fixing Stale Browser Cache After Deployment
@@ -21,7 +21,7 @@ Before touching anything, check what's actually in the project. Run these checks
 
 ```bash
 # What framework/bundler?
-cat package.json 2>/dev/null | grep -E '"(next|vite|react-scripts|svelte|nuxt|vue|@sveltejs)"'
+cat package.json 2>/dev/null | grep -E '"(next|vite|react-scripts|svelte|nuxt|vue|@sveltejs|remix|astro|@qwik|solid-start|tanstack-start|react-router)"'
 
 # Is this a PWA / does it register a service worker?
 grep -rl "serviceWorker.register\|navigator.serviceWorker" --include="*.{js,jsx,ts,tsx}" . 2>/dev/null | head -5
@@ -36,9 +36,12 @@ Use the results to decide which reference files apply:
 
 | Finding | What it means | Read |
 |---|---|---|
-| Next.js, Vite, CRA/webpack, SvelteKit, Nuxt detected | Framework-specific header config + ChunkLoadError handling | `references/framework-specific.md` |
+| Next.js, Vite, CRA/webpack, SvelteKit, Nuxt, Remix, Astro, Qwik, TanStack Start detected | Framework-specific header config + ChunkLoadError handling | `references/framework-specific.md` |
 | Service worker file or `serviceWorker.register` found, or user says "PWA"/"installable app" | Need the update-banner + skipWaiting pattern | `references/service-worker-pwa.md` |
-| Host config found, or user names a host (Vercel/Netlify/Nginx/Apache/Cloudflare/S3) | Server-level cache headers | `references/server-cache-headers.md` |
+| Host config found, or user names a host (Vercel/Netlify/Nginx/Apache/Cloudflare/S3/Deno Deploy/Firebase/Azure/Fly.io) | Server-level cache headers | `references/server-cache-headers.md` |
+| ISR pages, `getStaticProps` with `revalidate`, `export const revalidate`, or `revalidatePath`/`revalidateTag` | Server-side cache layer — CDN may cache independently of browser | `references/isr-ssr-cache.md` |
+| CI/CD pipeline (GitHub Actions, GitLab CI, etc.) | Need automated cache invalidation + optional cache warming | `references/ci-cd-cache-patterns.md` |
+| Error tracking (Sentry, LogRocket) or monitoring needed | Post-deploy cache verification + chunk error tracking | `references/monitoring-observability.md` |
 | None of the above found (plain static site, unknown host) | Default to the general HTML/asset header rule below, ask the user where it's hosted before writing host-specific config | `references/server-cache-headers.md` (general section) |
 
 Don't guess the host — if it's not obvious from config files, ask the user rather than writing config for the wrong platform.
@@ -103,3 +106,7 @@ Don't consider this done until you've confirmed it end-to-end:
 
 - If the project uses a CDN in front of the origin (Cloudflare, CloudFront, Fastly), the CDN's own cache rules can override or duplicate the origin's headers — check both layers, they need to agree. This is covered in `references/server-cache-headers.md`.
 - Don't reach for a service-worker-based fix (Layer C) if the project doesn't already have one and isn't a PWA — that's adding a large chunk of complexity to solve a problem Layers A+B already solve for regular websites. Only bring in Layer C when Step 1 actually found a service worker or the user explicitly wants offline/installable support.
+- If the project uses ISR (Incremental Static Regeneration) or SSR, browser cache headers alone aren't enough — there's a server-side and CDN-side cache layer that can serve stale content independently. Check `references/isr-ssr-cache.md`.
+- If the project has CI/CD, automate cache invalidation in the deploy pipeline rather than relying on manual steps. See `references/ci-cd-cache-patterns.md`.
+- For monitoring cache effectiveness in production, see `references/monitoring-observability.md`.
+- For security considerations (cache poisoning, sensitive data, CORS + cache, CSP + caching) and testing patterns, see `references/testing-security.md`.

@@ -9,6 +9,10 @@ Jump to the section matching what Step 1 detected. Each covers: where header con
 - [Create React App / plain Webpack](#create-react-app--plain-webpack)
 - [SvelteKit](#sveltekit)
 - [Nuxt / Vue](#nuxt--vue)
+- [Remix / React Router v7](#remix--react-router-v7)
+- [Astro](#astro)
+- [Qwik / Qwik City](#qwik--qwik-city)
+- [TanStack Start](#tanstack-start)
 
 ---
 
@@ -149,4 +153,215 @@ router.onError((error) => {
     window.location.reload();
   }
 });
+```
+
+## Remix / React Router v7
+
+Remix (and React Router v7 which incorporates Remix patterns) handles caching via HTTP headers returned from loaders.
+
+**Headers from loaders:**
+
+```javascript
+// app/routes/blog.$slug.tsx
+import { json } from '@remix-run/node';
+
+export async function loader({ params }) {
+  const post = await getPost(params.slug);
+  return json(post, {
+    headers: {
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+    },
+  });
+}
+```
+
+**Route-level headers export:**
+
+```javascript
+// app/routes/blog.$slug.tsx
+export function headers({ loaderHeaders }) {
+  return {
+    'Cache-Control': loaderHeaders.get('Cache-Control'),
+  };
+}
+```
+
+**Chunk error recovery (React Router v7):**
+
+React Router v7 provides `shouldRevalidate` for fine-grained control over when routes re-fetch:
+
+```javascript
+// app/routes/blog.$slug.tsx
+export function shouldRevalidate({ currentParams, nextParams }) {
+  // Only re-fetch if the slug changed
+  return currentParams.slug !== nextParams.slug;
+}
+```
+
+For chunk load errors, wrap lazy routes with an error boundary:
+
+```jsx
+// app/root.tsx
+import { ErrorBoundary } from 'react-router';
+import { useRouteError, isRouteErrorResponse } from 'react-router';
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  
+  useEffect(() => {
+    if (/Loading chunk|Failed to fetch dynamically imported module/i.test(error?.message)) {
+      window.location.reload();
+    }
+  }, [error]);
+  
+  return <p>Something went wrong.</p>;
+}
+```
+
+## Astro
+
+Astro supports per-route caching when using SSR adapters (Cloudflare, Netlify, Vercel, Node).
+
+**Route-level cache config:**
+
+```astro
+---
+// src/pages/blog/[slug].astro
+export const prerender = false; // SSR mode
+
+// Set cache headers via the response
+return new Response(null, {
+  headers: {
+    'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+  },
+});
+---
+
+<h1>{post.title}</h1>
+```
+
+**Adapter-specific caching:**
+- **Cloudflare:** Uses `cf.cacheTtl` — route config via `wrangler.toml` or Worker code
+- **Netlify:** Supports `durable` directive for persistent edge caching
+- **Vercel:** Edge Runtime supports `Cache-Control` headers directly
+
+**Chunk error recovery:**
+
+Astro is Vite-based under the hood, so the same `vite:preloadError` handler works:
+
+```javascript
+// src/scripts/chunk-recovery.js
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', () => {
+    window.location.reload();
+  });
+}
+```
+
+Import this script in your root layout to apply globally.
+
+## Qwik / Qwik City
+
+Qwik City provides a `cacheControl` API callable from route loaders, with support for nested layout cache overrides.
+
+**Route loader caching:**
+
+```typescript
+// src/routes/blog/[slug]/index.tsx
+import { routeLoader$ } from '@builder.io/qwik-city';
+
+export const useLoader = routeLoader$(async ({ cache, headers }) => {
+  cache({
+    maxAge: 60,
+    staleWhileRevalidate: 3600,
+  });
+  return fetchData();
+});
+```
+
+**Nested layout cache overrides:**
+
+```typescript
+// src/routes/blog/layout.tsx — parent layout
+import { component$ } from '@builder.io/qwik';
+import { routeLoader$ } from '@builder.io/qwik-city';
+
+export const useLayoutLoader = routeLoader$(({ cache }) => {
+  // This sets the base cache for all /blog/* routes
+  cache({ maxAge: 300, staleWhileRevalidate: 7200 });
+});
+```
+
+Individual routes under `/blog/` can override this with their own `cache()` call.
+
+**Chunk error recovery:**
+
+Qwik uses lazy-loading extensively. Wrap the root with an error boundary:
+
+```typescript
+// src/routes/layout.tsx
+import { component$, useErrorBoundary } from '@builder.io/qwik';
+
+export default component$(() => {
+  const error = useErrorBoundary();
+  
+  if (error) {
+    if (/Loading chunk|Failed to fetch/i.test(error.message)) {
+      window.location.reload();
+    }
+    return <p>Something went wrong.</p>;
+  }
+  
+  return <Slot />;
+});
+```
+
+## TanStack Start
+
+TanStack Start (built on Vinxi) uses server functions with caching semantics.
+
+**Server function caching:**
+
+```typescript
+// app/routes/blog.tsx
+import { createFileRoute } from '@tanstack/react-router';
+
+export const Route = createFileRoute('/blog')({
+  loader: async () => {
+    const posts = await fetchPosts();
+    return {
+      data: posts,
+      headers: {
+        'Cache-Control': 'public, max-age=60, stale-while-revalidate=3600',
+      },
+    };
+  },
+});
+```
+
+**Chunk error recovery:**
+
+TanStack Start is Vite-based, so `vite:preloadError` works:
+
+```typescript
+// app/router.tsx or entry.client.tsx
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', () => {
+    window.location.reload();
+  });
+}
+```
+
+For route-level errors, use TanStack Router's error boundary:
+
+```tsx
+// app/routes/__root.tsx
+import { ErrorComponent } from '@tanstack/react-router';
+
+export function ErrorComponent({ error }) {
+  if (/Loading chunk|Failed to fetch/i.test(error?.message)) {
+    window.location.reload();
+  }
+  return <ErrorComponent error={error} />;
+}
 ```

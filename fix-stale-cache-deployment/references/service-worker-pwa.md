@@ -67,13 +67,25 @@ if ('serviceWorker' in navigator) {
 ```jsx
 function UpdateBanner({ onUpdate }) {
   return (
-    <div role="alert" style={{ position: 'fixed', bottom: 16, left: 16, right: 16 }}>
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{ position: 'fixed', bottom: 16, left: 16, right: 16, zIndex: 9999 }}
+    >
       <span>A new version is available.</span>
-      <button onClick={onUpdate}>Update now</button>
+      <button
+        onClick={onUpdate}
+        aria-label="Update to the latest version"
+      >
+        Update now
+      </button>
     </div>
   );
 }
 ```
+
+**Why `role="status"` + `aria-live="polite"`:** The banner is a non-critical status update — screen readers should announce it without interrupting the user's current task. `role="alert"` (which announces immediately and interrupts) is too aggressive for an update prompt the user can dismiss. If the update is mandatory (e.g., security fix), use `role="alert"` instead.
 
 Wire `showUpdateBanner` to mount this component with `onUpdate` calling the `postMessage` above.
 
@@ -123,3 +135,52 @@ Service worker updates are notoriously easy to "test" against a false positive b
 2. Deploy version 1, load the site, close DevTools.
 3. Deploy version 2 (bump the cache name / build hash).
 4. Reopen the tab without hard-refreshing — the banner should appear within one poll cycle (browsers check for service worker updates roughly every 24h automatically, or immediately on navigation — trigger it manually via `registration.update()` during testing rather than waiting).
+
+## Security considerations
+
+### Don't cache sensitive API responses
+
+Service workers sit in front of the network — if your fetch handler caches API responses, user-specific data (authentication tokens, personal information, financial data) can be stored in the Cache API and served to other users on shared devices:
+
+```javascript
+// BAD — caches user-specific API data
+self.addEventListener('fetch', (event) => {
+  event.respondWith(caches.match(event.request));
+});
+
+// GOOD — only cache static assets
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  
+  // Skip API and auth routes
+  if (url.pathname.startsWith('/api/') || url.pathname.includes('/auth/')) {
+    return; // let browser handle directly
+  }
+  
+  // Only cache same-origin static assets
+  if (url.origin === self.location.origin && 
+      /\.(js|css|woff2?|png|jpg|svg)$/.test(url.pathname)) {
+    event.respondWith(
+      caches.match(event.request).then(cached => cached || fetch(event.request))
+    );
+  }
+});
+```
+
+### Scope restriction
+
+Register the service worker at the root (`/sw.js`) to limit its scope. A service worker at `/app/sw.js` has scope `/app/`, but a service worker at `/sw.js` has scope `/` which is usually what you want. Don't register from a subdirectory unless you explicitly need a narrower scope.
+
+### Don't cache POST/PUT/DELETE responses
+
+The Cache API can store any request, but caching mutation responses leads to stale or incorrect state:
+
+```javascript
+self.addEventListener('fetch', (event) => {
+  // Only cache GET requests
+  if (event.request.method !== 'GET') {
+    return;
+  }
+  // ... cache logic
+});
+```
