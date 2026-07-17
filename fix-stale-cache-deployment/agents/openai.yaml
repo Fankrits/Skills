@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deployment Cache Fixer"
+  short_description: "Diagnose stale releases, broken chunks, and PWA update failures"
+  brand_color: "#6D5EF5"
