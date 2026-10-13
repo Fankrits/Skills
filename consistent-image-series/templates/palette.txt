@@ -1,0 +1,7 @@
+# One "#HEX name" per line: every recurring part of the subject (sample from the approved reference with
+# scripts/sample.sh or scripts/extract-palette.sh). Used by scripts/palette-score.sh.
+#AE2D28 body-main
+#751615 body-shadow
+#C85E51 secondary-patch
+#131012 eyes-or-outline
+#E0D9D7 highlight
